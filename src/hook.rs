@@ -33,7 +33,6 @@ pub struct HookPayload {
 /// hook 解析结果:一次状态更新。`None` 表示该事件不产生状态变更。
 pub struct HookUpdate {
     pub key_project: String,
-    pub key_session: String,
     pub status: Status,
     pub message: String,
     /// SessionEnd 表示会话结束,应移除该灯。
@@ -72,7 +71,6 @@ impl HookPayload {
 
         Some(HookUpdate {
             key_project: self.project_name(),
-            key_session: self.session_id.clone(),
             status,
             message: self.display_message(status),
             remove,
@@ -94,7 +92,7 @@ impl HookPayload {
     }
 }
 
-/// 构造灯键。host 由服务端从连接来源补充。
-pub fn make_key(host: &str, project: &str, session: &str) -> LightKey {
-    LightKey::new(host, project, session)
+/// 构造灯键。host 由服务端从连接来源补充。session 不参与去重(同项目多会话合并)。
+pub fn make_key(host: &str, project: &str) -> LightKey {
+    LightKey::new(host, project)
 }

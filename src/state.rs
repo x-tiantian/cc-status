@@ -8,20 +8,21 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// 一个灯的唯一标识。缺省字段以空串表示。
+/// 一个灯的唯一标识:以「主机 + 项目」区分。
+///
+/// 注意:**不含 session**——同一项目多开会话应合并为一个灯(用户关心的是
+/// 哪个项目需要介入,而非哪个会话)。跨机器同名项目靠 host 区分。
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LightKey {
     pub host: String,
     pub project: String,
-    pub session: String,
 }
 
 impl LightKey {
-    pub fn new(host: impl Into<String>, project: impl Into<String>, session: impl Into<String>) -> Self {
+    pub fn new(host: impl Into<String>, project: impl Into<String>) -> Self {
         Self {
             host: host.into(),
             project: project.into(),
-            session: session.into(),
         }
     }
 }
@@ -54,14 +55,15 @@ pub struct Store {
 
 impl Store {
     /// 插入或更新一个灯,并刷新心跳。
+    ///
+    /// 消息随状态一同更新:新消息为空则清空旧消息,避免过时消息与新状态不符
+    /// (例如状态已变为"工作中",却仍显示上一条"等待输入"的消息)。
     pub fn upsert(&mut self, key: LightKey, status: Status, message: String) {
         self.lights
             .entry(key)
             .and_modify(|l| {
                 l.status = status;
-                if !message.is_empty() {
-                    l.message = message.clone();
-                }
+                l.message = message.clone();
                 l.last_beat = Instant::now();
             })
             .or_insert_with(|| Light::new(status, message));

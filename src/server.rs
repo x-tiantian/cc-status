@@ -86,7 +86,7 @@ fn handle_request(
 ) {
     // 仅接受 POST。
     if *request.method() != Method::Post {
-        let _ = request.respond(Response::from_string("method not allowed").with_status_code(405));
+        let _ = request.respond(json_response(405, "{\"error\":\"method not allowed\"}"));
         return;
     }
 
@@ -97,7 +97,7 @@ fn handle_request(
             .iter()
             .any(|h| h.field.equiv("X-CC-Token") && h.value.as_str() == cfg.token);
         if !ok {
-            let _ = request.respond(Response::from_string("unauthorized").with_status_code(401));
+            let _ = request.respond(json_response(401, "{\"error\":\"unauthorized\"}"));
             return;
         }
     }
@@ -111,7 +111,7 @@ fn handle_request(
 
     let mut body: Vec<u8> = Vec::new();
     if std::io::Read::read_to_end(request.as_reader(), &mut body).is_err() {
-        let _ = request.respond(Response::from_string("bad body").with_status_code(400));
+        let _ = request.respond(json_response(400, "{\"error\":\"bad body\"}"));
         return;
     }
 
@@ -120,7 +120,7 @@ fn handle_request(
     } else if url.starts_with("/status") {
         apply_status(&body, &peer_host, store)
     } else {
-        let _ = request.respond(Response::from_string("not found").with_status_code(404));
+        let _ = request.respond(json_response(404, "{\"error\":\"not found\"}"));
         return;
     };
 
@@ -129,24 +129,44 @@ fn handle_request(
             if changed {
                 notify_ui(hwnd_raw);
             }
-            let _ = request.respond(Response::from_string("ok").with_status_code(200));
+            // http hook 要求响应体为 JSON;返回空对象表示"已接收、不做决策"。
+            let _ = request.respond(json_response(200, "{}"));
         }
         Err(msg) => {
-            let _ = request.respond(Response::from_string(msg).with_status_code(400));
+            let body = format!("{{\"error\":\"{}\"}}", msg);
+            let _ = request.respond(json_response(400, &body));
         }
     }
+}
+
+/// 构造带 `Content-Type: application/json` 头的响应。
+fn json_response(code: u16, body: &str) -> Response<std::io::Cursor<Vec<u8>>> {
+    let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+        .expect("valid header");
+    Response::from_string(body)
+        .with_status_code(code)
+        .with_header(header)
 }
 
 /// 处理原始 hook JSON。返回 Ok(true) 表示状态有变。
 fn apply_hook(body: &[u8], peer_host: &str, store: &SharedStore) -> Result<bool, &'static str> {
     let payload: HookPayload = serde_json::from_slice(body).map_err(|_| "invalid hook json")?;
+    if std::env::var("CC_TRACE").is_ok() {
+        eprintln!(
+            "[trace] hook event={} type={} cwd={} session={}",
+            payload.hook_event_name,
+            payload.notification_type,
+            payload.cwd,
+            payload.session_id
+        );
+    }
     let update = match payload.to_update() {
         Some(u) => u,
         None => return Ok(false), // 不影响灯的事件
     };
     // hook JSON 不含主机名,用连接来源 IP;回环视为本机(空 host)。
     let host = host_label(peer_host);
-    let key = make_key(&host, &update.key_project, &update.key_session);
+    let key = make_key(&host, &update.key_project);
 
     let mut s = store.lock().map_err(|_| "store poisoned")?;
     if update.remove {
@@ -169,7 +189,7 @@ fn apply_status(body: &[u8], peer_host: &str, store: &SharedStore) -> Result<boo
     } else {
         p.host
     };
-    let key = LightKey::new(host, p.project, p.session);
+    let key = LightKey::new(host, p.project);
     let mut s = store.lock().map_err(|_| "store poisoned")?;
     s.upsert(key, p.state, p.message);
     Ok(true)

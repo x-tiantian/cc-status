@@ -16,10 +16,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
     GetWindowTextW, IsWindow, RegisterClassExW, SendMessageW, SetWindowTextW, ShowWindow,
     TranslateMessage, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, CW_USEDEFAULT,
-    ES_AUTOHSCROLL, MSG, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_DESTROY,
-    WM_SETFONT, WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_EX_DLGMODALFRAME, WS_OVERLAPPED, WS_SYSMENU,
-    WS_TABSTOP, WS_VISIBLE,
+    ES_AUTOHSCROLL, ES_MULTILINE, ES_READONLY, MSG, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_SETFONT, WNDCLASSEXW, WS_BORDER, WS_CHILD,
+    WS_EX_DLGMODALFRAME, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
+use windows::Win32::UI::WindowsAndMessaging::EN_CHANGE;
 
 const CLASS: PCWSTR = w!("cc_status_settings");
 
@@ -31,6 +32,8 @@ const ID_AUTOSTART: i32 = 104;
 const ID_SAVE: i32 = 105;
 const ID_CANCEL: i32 = 106;
 const ID_QUIT: i32 = 107;
+const ID_SNIPPET: i32 = 108;
+const ID_COPY: i32 = 109;
 
 thread_local! {
     /// 设置窗内部工作状态(单例,模态期间有效)。
@@ -42,6 +45,8 @@ struct Ctx {
     port: HWND,
     token: HWND,
     autostart: HWND,
+    /// hooks 配置片段只读框(随 IP/端口/token 变化实时更新)。
+    snippet: HWND,
     /// 输入的初始配置副本;保存时据此产出新配置。
     original: Config,
     /// 保存结果:Some(新配置) 表示用户点击了保存。
@@ -83,8 +88,8 @@ pub fn show_modal(owner: HWND, current: &Config) -> SettingsOutcome {
             style,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            360,
-            250,
+            480,
+            430,
             Some(owner),
             None,
             Some(hinst.into()),
@@ -179,16 +184,16 @@ fn build_controls(hwnd: HWND, cfg: &Config) {
             c
         };
 
-        label(w!("监听 IP:"), 16, 18, 80, 20);
-        let ip = edit(ID_IP, 100, 16, 230, 24, WINDOW_STYLE(ES_AUTOHSCROLL as u32));
+        label(w!("监听 IP:"), 16, 18, 90, 20);
+        let ip = edit(ID_IP, 110, 16, 340, 24, WINDOW_STYLE(ES_AUTOHSCROLL as u32));
         set_text(ip, &cfg.listen_ip);
 
-        label(w!("端口:"), 16, 52, 80, 20);
-        let port = edit(ID_PORT, 100, 50, 230, 24, WINDOW_STYLE(ES_AUTOHSCROLL as u32));
+        label(w!("端口:"), 16, 52, 90, 20);
+        let port = edit(ID_PORT, 110, 50, 340, 24, WINDOW_STYLE(ES_AUTOHSCROLL as u32));
         set_text(port, &cfg.listen_port.to_string());
 
-        label(w!("Token(可选):"), 16, 86, 80, 20);
-        let token = edit(ID_TOKEN, 100, 84, 230, 24, WINDOW_STYLE(ES_AUTOHSCROLL as u32));
+        label(w!("Token(可选):"), 16, 86, 90, 20);
+        let token = edit(ID_TOKEN, 110, 84, 340, 24, WINDOW_STYLE(ES_AUTOHSCROLL as u32));
         set_text(token, &cfg.token);
 
         // 复选框:开机自启。
@@ -197,8 +202,8 @@ fn build_controls(hwnd: HWND, cfg: &Config) {
             w!("BUTTON"),
             w!("开机启动"),
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
-            100,
-            118,
+            110,
+            116,
             200,
             22,
             Some(hwnd),
@@ -238,9 +243,46 @@ fn build_controls(hwnd: HWND, cfg: &Config) {
             set_font(c, font);
             c
         };
-        button(ID_SAVE, w!("保存"), 60, 160, true);
-        button(ID_CANCEL, w!("取消"), 150, 160, false);
-        button(ID_QUIT, w!("退出程序"), 240, 160, false);
+        button(ID_SAVE, w!("保存"), 110, 150, true);
+        button(ID_CANCEL, w!("取消"), 200, 150, false);
+        button(ID_QUIT, w!("退出程序"), 290, 150, false);
+
+        // hooks 配置片段:说明 + 复制按钮 + 多行只读框。
+        label(
+            w!("将以下内容加入 Claude Code 的 settings.json(hooks 键):"),
+            16,
+            192,
+            340,
+            20,
+        );
+        button(ID_COPY, w!("复制"), 370, 188, false);
+
+        let snippet = CreateWindowExW(
+            WS_EX_DLGMODALFRAME,
+            w!("EDIT"),
+            w!(""),
+            WS_CHILD
+                | WS_VISIBLE
+                | WS_BORDER
+                | WS_TABSTOP
+                | WS_VSCROLL
+                | WINDOW_STYLE(ES_MULTILINE as u32)
+                | WINDOW_STYLE(ES_READONLY as u32),
+            16,
+            216,
+            448,
+            160,
+            Some(hwnd),
+            Some(windows::Win32::UI::WindowsAndMessaging::HMENU(ID_SNIPPET as isize as *mut _)),
+            Some(hinst.into()),
+            None,
+        )
+        .unwrap();
+        set_font(snippet, font);
+        set_text(
+            snippet,
+            &crate::config::hooks_snippet(&cfg.listen_ip, cfg.listen_port, &cfg.token),
+        );
 
         CTX.with(|c| {
             *c.borrow_mut() = Some(Ctx {
@@ -248,6 +290,7 @@ fn build_controls(hwnd: HWND, cfg: &Config) {
                 port,
                 token,
                 autostart,
+                snippet,
                 original: cfg.clone(),
                 result: None,
                 quit: false,
@@ -287,10 +330,14 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
         match msg {
             WM_COMMAND => {
                 let id = (wparam.0 & 0xFFFF) as i32;
+                let notify = ((wparam.0 >> 16) & 0xFFFF) as u32;
                 match id {
                     ID_SAVE => on_save(),
                     ID_CANCEL => finish(false, false),
                     ID_QUIT => finish(false, true),
+                    ID_COPY => copy_snippet(),
+                    // IP / 端口 / token 编辑时实时刷新 hooks 片段。
+                    ID_IP | ID_PORT | ID_TOKEN if notify == EN_CHANGE => refresh_snippet(),
                     _ => {}
                 }
                 LRESULT(0)
@@ -364,6 +411,68 @@ fn finish(_save: bool, quit: bool) {
             ctx.done = true;
         }
     });
+}
+
+/// 依据当前 IP/端口/token 输入重新生成 hooks 片段并写入只读框。
+fn refresh_snippet() {
+    CTX.with(|c| {
+        let b = c.borrow();
+        let ctx = match b.as_ref() {
+            Some(x) => x,
+            None => return,
+        };
+        let ip = get_text(ctx.ip);
+        let port: u16 = get_text(ctx.port).trim().parse().unwrap_or(0);
+        let token = get_text(ctx.token);
+        let ip = if ip.trim().is_empty() { "127.0.0.1".to_string() } else { ip.trim().to_string() };
+        let text = crate::config::hooks_snippet(&ip, port, token.trim());
+        set_text(ctx.snippet, &text);
+    });
+}
+
+/// 把 hooks 片段复制到剪贴板。
+fn copy_snippet() {
+    let text = CTX.with(|c| c.borrow().as_ref().map(|x| get_text(x.snippet)).unwrap_or_default());
+    if text.is_empty() {
+        return;
+    }
+    if let Err(e) = set_clipboard(&text) {
+        eprintln!("[cc-status] 复制到剪贴板失败: {e}");
+    } else {
+        msgbox("已复制到剪贴板。");
+    }
+}
+
+/// 将文本写入 Windows 剪贴板(CF_UNICODETEXT)。
+fn set_clipboard(text: &str) -> anyhow::Result<()> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows::Win32::System::Ole::CF_UNICODETEXT;
+
+    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let bytes = wide.len() * std::mem::size_of::<u16>();
+    unsafe {
+        OpenClipboard(None)?;
+        // 确保异常路径也关闭剪贴板。
+        let result = (|| -> anyhow::Result<()> {
+            EmptyClipboard()?;
+            let hmem = GlobalAlloc(GMEM_MOVEABLE, bytes)?;
+            let dst = GlobalLock(hmem);
+            if dst.is_null() {
+                anyhow::bail!("GlobalLock 失败");
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), dst as *mut u16, wide.len());
+            let _ = GlobalUnlock(hmem);
+            // 所有权移交剪贴板。
+            SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(hmem.0)))?;
+            Ok(())
+        })();
+        let _ = CloseClipboard();
+        result
+    }
 }
 
 fn msgbox(text: &str) {

@@ -44,6 +44,15 @@ fn main() -> anyhow::Result<()> {
             println!("开机自启:已关闭");
             return Ok(());
         }
+        Some("--print-hooks") => {
+            // 打印当前配置对应的 Claude Code hooks 片段(便于命令行获取)。
+            let cfg = Config::load();
+            println!(
+                "{}",
+                config::hooks_snippet(&cfg.listen_ip, cfg.listen_port, &cfg.token)
+            );
+            return Ok(());
+        }
         _ => {}
     }
 

@@ -123,3 +123,42 @@ impl Config {
         Ok(())
     }
 }
+
+/// 依据监听 IP/端口(和可选 token)生成可直接粘贴到 Claude Code
+/// `settings.json` 的 hooks 配置片段。供设置窗动态展示、用户一键复制。
+pub fn hooks_snippet(ip: &str, port: u16, token: &str) -> String {
+    // 跨机器时用户会把 IP 换成局域网地址;此处按当前设置直出。
+    let host = if ip == "0.0.0.0" { "127.0.0.1" } else { ip };
+    let url = format!("http://{host}:{port}/hook");
+    // 启用 token 时附加请求头。
+    let headers = if token.is_empty() {
+        String::new()
+    } else {
+        format!(", \"headers\": {{ \"X-CC-Token\": \"{token}\" }}")
+    };
+    let h = |matcher: Option<&str>| -> String {
+        let m = match matcher {
+            Some(m) => format!("\"matcher\": \"{m}\", "),
+            None => String::new(),
+        };
+        format!("[{{ {m}\"hooks\": [{{ \"type\": \"http\", \"url\": \"{url}\", \"timeout\": 5{headers} }}] }}]")
+    };
+    format!(
+        "\"hooks\": {{\r\n\
+         \x20 \"SessionStart\":     {},\r\n\
+         \x20 \"UserPromptSubmit\": {},\r\n\
+         \x20 \"PreToolUse\":       {},\r\n\
+         \x20 \"Notification\":     {},\r\n\
+         \x20 \"Stop\":             {},\r\n\
+         \x20 \"StopFailure\":      {},\r\n\
+         \x20 \"SessionEnd\":       {}\r\n\
+         }}",
+        h(None),
+        h(None),
+        h(Some("")),
+        h(Some("permission_prompt|idle_prompt")),
+        h(None),
+        h(None),
+        h(None),
+    )
+}
