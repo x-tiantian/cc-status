@@ -1,18 +1,19 @@
 //! 系统托盘图标:基于 `Shell_NotifyIconW`。
 //!
 //! 承载右键菜单(设置 / 退出)与气泡提示,并作为面板定位失败时的永久入口
-//! (对应需求文档 FR-8)。M1 使用系统默认图标,真实图标在 M7 替换。
+//! (对应需求文档 FR-8)。图标由 build.rs 嵌入 exe 资源段。
 
 use crate::win::{wide, wide_into, WM_APP_TRAY};
 use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
     NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, LoadIconW, SetForegroundWindow,
-    TrackPopupMenu, HICON, HMENU, IDI_APPLICATION, MF_STRING, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
-    TPM_RETURNCMD,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, LoadImageW,
+    SetForegroundWindow, TrackPopupMenu, HICON, HMENU, IMAGE_ICON, LR_DEFAULTCOLOR, MF_STRING,
+    SM_CXSMICON, SM_CYSMICON, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RETURNCMD,
 };
 
 /// 托盘图标的唯一 ID(单图标固定为 1)。
@@ -26,8 +27,9 @@ pub struct Tray {
 
 impl Tray {
     /// 在指定窗口上创建托盘图标。鼠标事件将以 `WM_APP_TRAY` 回调该窗口。
+    /// 图标从 exe 资源段加载(winres 以 ID 1 嵌入的多分辨率 icon.ico)。
     pub fn new(hwnd: HWND, tip: &str) -> windows::core::Result<Self> {
-        let icon = unsafe { LoadIconW(None, IDI_APPLICATION)? };
+        let icon = load_tray_icon()?;
         let mut data = Self::base_data(hwnd, icon);
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WM_APP_TRAY;
@@ -93,6 +95,33 @@ impl Drop for Tray {
         let data = Self::base_data(self.hwnd, self.icon);
         unsafe {
             let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+        }
+    }
+}
+
+/// 从 exe 资源段(ID 1)加载图标,尺寸取当前小图标度量(随 DPI 变化,托盘清晰)。
+/// 资源缺失时回退系统默认应用图标,保证托盘始终有图标可用。
+fn load_tray_icon() -> windows::core::Result<HICON> {
+    unsafe {
+        let hinst = GetModuleHandleW(None)?;
+        let cx = GetSystemMetrics(SM_CXSMICON).max(16);
+        let cy = GetSystemMetrics(SM_CYSMICON).max(16);
+        let handle = LoadImageW(
+            Some(hinst.into()),
+            // MAKEINTRESOURCE(1):build.rs 以 ID 1 嵌入的图标。
+            windows::core::PCWSTR(1usize as *const u16),
+            IMAGE_ICON,
+            cx,
+            cy,
+            LR_DEFAULTCOLOR,
+        );
+        match handle {
+            Ok(h) if !h.is_invalid() => Ok(HICON(h.0)),
+            _ => {
+                // 回退:系统默认应用图标。
+                use windows::Win32::UI::WindowsAndMessaging::{LoadIconW, IDI_APPLICATION};
+                LoadIconW(None, IDI_APPLICATION)
+            }
         }
     }
 }

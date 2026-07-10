@@ -31,8 +31,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 fn main() -> anyhow::Result<()> {
-    // 命令行工具:无界面地开关开机自启(便于脚本/安装器调用)。
+    // 命令行工具:无界面地开关开机自启 / 打印 hook 配置(便于脚本调用)。
     let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        // GUI 子系统程序默认无控制台;附加到父进程控制台,使 CLI 输出可见。
+        unsafe {
+            use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
     match args.get(1).map(|s| s.as_str()) {
         Some("--enable-autostart") => {
             autostart::set(true)?;
