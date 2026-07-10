@@ -1,0 +1,4 @@
+# cc-status 本地构建配置
+# schannel 在企业/离线网络下无法访问 CRL,禁用证书吊销检查,避免 CRYPT_E_REVOCATION_OFFLINE
+[http]
+check-revoke = false

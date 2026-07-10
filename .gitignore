@@ -1,0 +1,13 @@
+/target
+
+# 构建产物
+*.pdb
+
+# 开发期临时截图与脚本(非交付物)
+tray_shot.png
+tray_crop.png
+tray_shot.ps1
+tray_crop.ps1
+tip_shot.ps1
+tip_shot.png
+move_cursor.ps1
