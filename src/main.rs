@@ -7,11 +7,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod autostart;
 mod config;
 mod hook;
 mod panel;
 mod render;
 mod server;
+mod settings;
 mod state;
 mod status;
 mod tip;
@@ -29,6 +31,22 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 fn main() -> anyhow::Result<()> {
+    // 命令行工具:无界面地开关开机自启(便于脚本/安装器调用)。
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1).map(|s| s.as_str()) {
+        Some("--enable-autostart") => {
+            autostart::set(true)?;
+            println!("开机自启:已启用");
+            return Ok(());
+        }
+        Some("--disable-autostart") => {
+            autostart::set(false)?;
+            println!("开机自启:已关闭");
+            return Ok(());
+        }
+        _ => {}
+    }
+
     // Per-Monitor DPI 感知,保证多显示器/缩放下的正确尺寸与定位(需求 §6)。
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

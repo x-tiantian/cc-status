@@ -1,21 +1,20 @@
 //! 面板窗口:无边框、置顶、不抢焦点、不入任务栏/Alt-Tab。
 //!
-//! M1 仅创建占位窗口并处理托盘回调与菜单命令。M3 将加入 Direct2D 灯绘制与
-//! 托盘左侧锚定定位;当前先固定放在屏幕右下角作为可见占位。
+//! 窗口过程把事件转发给 App(存于 GWLP_USERDATA):托盘回调、鼠标悬停、
+//! 定时器(动画/轮播)、环境变化重定位、资源管理器重启重建托盘。
 
 use crate::app::App;
 use crate::win::{WM_APP_TRAY, WM_APP_UPDATE};
-use crate::win::{ID_MENU_EXIT, ID_MENU_SETTINGS};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, LoadCursorW,
-    PostQuitMessage, RegisterClassExW, SetWindowLongPtrW, CW_USEDEFAULT,
-    GWLP_USERDATA, IDC_ARROW, WINDOW_EX_STYLE, WM_CREATE, WM_DESTROY, WM_DISPLAYCHANGE,
-    WM_DPICHANGED, WM_MOUSEMOVE, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER,
-    WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, GetWindowLongPtrW, LoadCursorW, PostQuitMessage,
+    RegisterClassExW, SetWindowLongPtrW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, WINDOW_EX_STYLE,
+    WM_CREATE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_MOUSEMOVE, WM_RBUTTONUP,
+    WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
@@ -169,19 +168,5 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
     }
 }
 
-/// 处理菜单命令返回值。返回 true 表示应退出程序。
-pub fn handle_menu_command(cmd: usize, hwnd: HWND) -> bool {
-    match cmd {
-        ID_MENU_SETTINGS => {
-            // M5 实现设置窗;M1 先占位。
-            false
-        }
-        ID_MENU_EXIT => {
-            unsafe {
-                let _ = DestroyWindow(hwnd);
-            }
-            true
-        }
-        _ => false,
-    }
-}
+// 显示窗口时机由 App 控制(有灯时自行显示)。
+// 退出通过菜单在 App 内直接 DestroyWindow 完成。

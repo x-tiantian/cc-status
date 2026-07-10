@@ -146,6 +146,25 @@ fn fallback_bottom_right(panel_w: i32, panel_h: i32) -> Placement {
     }
 }
 
+/// 重新把面板抢占到置顶层,避免被任务栏(同为置顶窗口)激活后盖住。
+/// 保持位置与尺寸不变、不抢焦点。
+pub fn reassert_topmost(hwnd: HWND) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
 /// 把画布通过 `UpdateLayeredWindow` 呈现到屏幕。
 pub fn present(hwnd: HWND, placement: Placement, canvas: &Canvas) {
     unsafe {

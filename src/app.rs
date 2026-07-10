@@ -8,7 +8,6 @@ use crate::state::{Light, LightKey, SharedStore};
 use crate::tip::{self, TipState};
 use crate::tray::Tray;
 use crate::win::{ID_MENU_EXIT, ID_MENU_SETTINGS, WM_APP_UPDATE};
-use crate::window;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -21,6 +20,9 @@ pub const ANIM_TIMER_ID: usize = 1;
 const ANIM_INTERVAL_MS: u32 = 60;
 /// 分屏轮播定时器 ID。
 pub const CAROUSEL_TIMER_ID: usize = 2;
+/// 置顶保持定时器 ID:周期性重新抢占置顶,防止被任务栏盖住。
+pub const TOPMOST_TIMER_ID: usize = 3;
+const TOPMOST_INTERVAL_MS: u32 = 400;
 
 /// 应用运行期状态。由窗口过程通过 GWLP_USERDATA 持有。
 pub struct App {
@@ -39,6 +41,8 @@ pub struct App {
     timer_on: bool,
     /// 轮播定时器是否已开启。
     carousel_on: bool,
+    /// 置顶保持定时器是否已开启。
+    topmost_on: bool,
     /// 当前是否有灯可见。
     visible: bool,
     /// 当前显示页(0 基)。
@@ -70,6 +74,7 @@ impl App {
             anim_start: Instant::now(),
             timer_on: false,
             carousel_on: false,
+            topmost_on: false,
             visible: false,
             page: 0,
             shown: Vec::new(),
@@ -220,7 +225,10 @@ impl App {
                 let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
             }
             self.visible = true;
+            self.set_topmost_timer(true);
         }
+        // 每次呈现后立即抢占置顶,确保压在任务栏之上。
+        panel::reassert_topmost(self.hwnd);
     }
 
     fn hide(&mut self) {
@@ -229,6 +237,22 @@ impl App {
                 let _ = ShowWindow(self.hwnd, SW_HIDE);
             }
             self.visible = false;
+            self.set_topmost_timer(false);
+        }
+    }
+
+    /// 开关"置顶保持"定时器(可见期间持续运行,周期性重新置顶)。
+    fn set_topmost_timer(&mut self, on: bool) {
+        if on && !self.topmost_on {
+            unsafe {
+                SetTimer(Some(self.hwnd), TOPMOST_TIMER_ID, TOPMOST_INTERVAL_MS, None);
+            }
+            self.topmost_on = true;
+        } else if !on && self.topmost_on {
+            unsafe {
+                let _ = KillTimer(Some(self.hwnd), TOPMOST_TIMER_ID);
+            }
+            self.topmost_on = false;
         }
     }
 
@@ -263,8 +287,15 @@ impl App {
         }
     }
 
-    /// 定时器触发。区分动画帧与轮播翻页。
+    /// 定时器触发。区分动画帧、轮播翻页、置顶保持。
     pub fn on_timer(&mut self, id: usize) {
+        if id == TOPMOST_TIMER_ID {
+            // 轻量:仅重新抢占置顶,不整帧重绘。
+            if self.visible {
+                panel::reassert_topmost(self.hwnd);
+            }
+            return;
+        }
         if id == CAROUSEL_TIMER_ID {
             let n = self.store.lock().map(|s| s.len()).unwrap_or(0);
             let pages = n.div_ceil(MAX_PER_PAGE).max(1);
@@ -368,11 +399,64 @@ impl App {
 
     /// 右键 → 弹出上下文菜单并处理选择。
     pub fn on_tray_context_menu(&mut self) {
-        if let Some(tray) = &self.tray {
-            let cmd =
-                tray.show_context_menu(&[(ID_MENU_SETTINGS, "设置…"), (ID_MENU_EXIT, "退出")]);
-            window::handle_menu_command(cmd, self.hwnd);
+        let cmd = match &self.tray {
+            Some(tray) => {
+                tray.show_context_menu(&[(ID_MENU_SETTINGS, "设置…"), (ID_MENU_EXIT, "退出")])
+            }
+            None => return,
+        };
+        match cmd {
+            ID_MENU_SETTINGS => self.open_settings(),
+            ID_MENU_EXIT => {
+                unsafe {
+                    let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.hwnd);
+                }
+                return;
+            }
+            _ => {}
         }
+        // 菜单关闭后恢复面板输入层级与 hover 状态。
+        self.after_popup();
+    }
+
+    /// 任何抢焦点的弹窗(右键菜单 / 设置窗)关闭后调用:
+    /// 重置 hover 状态并重新抢占置顶,恢复 tooltip 与右键响应。
+    fn after_popup(&mut self) {
+        self.hovering = false;
+        self.hover_index = None;
+        crate::tip::hide(self.tip_hwnd);
+        if self.visible {
+            panel::reassert_topmost(self.hwnd);
+        }
+    }
+
+    /// 打开设置窗;保存后按需重启监听、刷新界面。
+    fn open_settings(&mut self) {
+        // 悬停提示先隐藏,避免遮挡。
+        crate::tip::hide(self.tip_hwnd);
+        let outcome = crate::settings::show_modal(self.hwnd, &self.config);
+        if outcome.quit {
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.hwnd);
+            }
+            return;
+        }
+        if let Some(new_cfg) = outcome.new_config {
+            let need_restart = new_cfg.listen_ip != self.config.listen_ip
+                || new_cfg.listen_port != self.config.listen_port
+                || new_cfg.token != self.config.token;
+            self.config = new_cfg;
+            if let Err(e) = self.config.save() {
+                eprintln!("[cc-status] 保存配置失败: {e}");
+            }
+            if need_restart {
+                self.restart_server();
+            } else {
+                self.on_update();
+            }
+        }
+        // 设置窗关闭后恢复面板输入层级与 hover 状态。
+        self.after_popup();
     }
 
     /// 收到状态更新通知:刷新托盘提示并重绘面板。
