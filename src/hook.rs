@@ -55,8 +55,10 @@ impl HookPayload {
     pub fn to_update(&self) -> Option<HookUpdate> {
         let (status, remove) = match self.hook_event_name.as_str() {
             "SessionStart" => (Status::Idle, false),
-            "UserPromptSubmit" => (Status::Working, false),
-            "PreToolUse" | "PostToolUse" => (Status::Working, false),
+            // 收到输入 / 消化工具结果 → 推理阶段(近似 thinking)。
+            "UserPromptSubmit" | "PostToolUse" => (Status::Thinking, false),
+            // 即将执行工具 → 工作中。
+            "PreToolUse" => (Status::Working, false),
             "Notification" => match self.notification_type.as_str() {
                 "permission_prompt" => (Status::WaitingPermission, false),
                 "idle_prompt" => (Status::WaitingInput, false),

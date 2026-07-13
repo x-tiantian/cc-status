@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 pub enum Status {
     /// 空闲 / 任务完成待命。
     Idle,
-    /// 正在思考 / 执行中。
+    /// 正在思考 / 推理(收到输入或工具结果后、执行工具前的推理阶段)。
+    Thinking,
+    /// 正在执行工具 / 工作中。
     Working,
     /// 等待用户输入 / 对话。
     WaitingInput,
@@ -91,6 +93,7 @@ impl Status {
     pub const fn color(self) -> Rgb {
         match self {
             Status::Idle => Rgb::new(0x2E, 0xCC, 0x71),              // 绿
+            Status::Thinking => Rgb::new(0x9B, 0x59, 0xB6),          // 紫
             Status::Working => Rgb::new(0x34, 0x98, 0xDB),           // 蓝
             Status::WaitingInput => Rgb::new(0xF1, 0xC4, 0x0F),      // 黄
             Status::WaitingPermission => Rgb::new(0xE6, 0x7E, 0x22), // 橙
@@ -103,6 +106,7 @@ impl Status {
     pub const fn animation(self) -> Animation {
         match self {
             Status::Idle | Status::Offline => Animation::Solid,
+            Status::Thinking => Animation::Breathe,
             Status::Working => Animation::Breathe,
             Status::WaitingInput => Animation::Blink,
             Status::WaitingPermission => Animation::Blink,
@@ -122,6 +126,7 @@ impl Status {
     pub const fn label_zh(self) -> &'static str {
         match self {
             Status::Idle => "空闲",
+            Status::Thinking => "思考中",
             Status::Working => "工作中",
             Status::WaitingInput => "等待输入",
             Status::WaitingPermission => "等待授权",

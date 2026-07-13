@@ -20,9 +20,9 @@ pub const ANIM_TIMER_ID: usize = 1;
 const ANIM_INTERVAL_MS: u32 = 60;
 /// 分屏轮播定时器 ID。
 pub const CAROUSEL_TIMER_ID: usize = 2;
-/// 置顶保持定时器 ID:周期性重新抢占置顶,防止被任务栏盖住。
+/// 置顶保持 + 位置跟随定时器 ID:周期性重新抢占置顶并跟随托盘位置变化。
 pub const TOPMOST_TIMER_ID: usize = 3;
-const TOPMOST_INTERVAL_MS: u32 = 400;
+const TOPMOST_INTERVAL_MS: u32 = 250;
 
 /// 应用运行期状态。由窗口过程通过 GWLP_USERDATA 持有。
 pub struct App {
@@ -55,6 +55,9 @@ pub struct App {
     /// 当前面板左上角屏幕坐标(把客户区坐标换算为屏幕坐标)。
     panel_x: i32,
     panel_y: i32,
+    /// 当前面板尺寸(供定时重定位时复用,不必重算布局)。
+    panel_w: i32,
+    panel_h: i32,
     /// 鼠标是否悬停在面板上(悬停时暂停轮播)。
     hovering: bool,
     /// 当前悬停命中的灯索引。
@@ -82,6 +85,8 @@ impl App {
             radius: 0.0,
             panel_x: 0,
             panel_y: 0,
+            panel_w: 0,
+            panel_h: 0,
             hovering: false,
             hover_index: None,
         }
@@ -211,6 +216,8 @@ impl App {
         let placement = panel::compute_placement(lay.w, lay.h);
         self.panel_x = placement.x;
         self.panel_y = placement.y;
+        self.panel_w = placement.w;
+        self.panel_h = placement.h;
         panel::present(self.hwnd, placement, &canvas);
         self.show();
 
@@ -290,9 +297,9 @@ impl App {
     /// 定时器触发。区分动画帧、轮播翻页、置顶保持。
     pub fn on_timer(&mut self, id: usize) {
         if id == TOPMOST_TIMER_ID {
-            // 轻量:仅重新抢占置顶,不整帧重绘。
+            // 轻量:保持置顶,并跟随托盘位置变化即时重定位(不整帧重绘)。
             if self.visible {
-                panel::reassert_topmost(self.hwnd);
+                self.reposition_if_changed();
             }
             return;
         }
@@ -302,6 +309,23 @@ impl App {
             self.page = (self.page + 1) % pages;
         }
         self.redraw();
+    }
+
+    /// 按当前面板尺寸重算托盘锚定位置:位置变了就移动窗口(并保持置顶),
+    /// 未变则仅重新抢占置顶。层叠窗口的内容随窗口移动,无需重绘。
+    fn reposition_if_changed(&mut self) {
+        if self.panel_w <= 0 {
+            panel::reassert_topmost(self.hwnd);
+            return;
+        }
+        let p = panel::compute_placement(self.panel_w, self.panel_h);
+        if p.x != self.panel_x || p.y != self.panel_y {
+            self.panel_x = p.x;
+            self.panel_y = p.y;
+            panel::move_topmost(self.hwnd, p.x, p.y);
+        } else {
+            panel::reassert_topmost(self.hwnd);
+        }
     }
 
     /// 环境变化(任务栏移动 / DPI / 分辨率):重新定位并重绘。

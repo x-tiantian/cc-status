@@ -86,23 +86,29 @@ impl Store {
             .collect()
     }
 
-    /// 心跳清理:超过 `offline_after` 无心跳 → 置 offline;
-    /// 超过 `remove_after` → 移除。返回 true 表示集合有变化(需刷新 UI)。
+    /// 心跳清理。返回 true 表示集合有变化(需刷新 UI)。
+    ///
+    /// 只有 `idle`(Claude 已停下)的灯会因长时间无心跳而变灰、进而移除;
+    /// `working` / `waiting_input` / `waiting_permission` / `error` 属于活跃或
+    /// 待用户处理的状态,**持续显示、不因超时变灰**——避免长任务/长思考期间
+    /// (其间没有新 hook)被误判为离线。这类灯仅由后续 hook 或 SessionEnd 改变。
     pub fn sweep(&mut self, offline_after: Duration, remove_after: Duration) -> bool {
         let now = Instant::now();
         let mut changed = false;
 
-        // 先移除超过 remove_after 的灯。
+        // 移除:已 offline 且超过 remove_after 无心跳的灯
+        // (offline 由 idle 超时或 SessionEnd 设置)。
         let before = self.lights.len();
-        self.lights
-            .retain(|_, l| now.duration_since(l.last_beat) < remove_after);
+        self.lights.retain(|_, l| {
+            !(l.status == Status::Offline && now.duration_since(l.last_beat) >= remove_after)
+        });
         if self.lights.len() != before {
             changed = true;
         }
 
-        // 再把超时的灯置为 offline。
+        // 仅 idle 灯在长时间无心跳后转 offline。
         for l in self.lights.values_mut() {
-            if l.status != Status::Offline && now.duration_since(l.last_beat) >= offline_after {
+            if l.status == Status::Idle && now.duration_since(l.last_beat) >= offline_after {
                 l.status = Status::Offline;
                 changed = true;
             }
