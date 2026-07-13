@@ -11,6 +11,9 @@ When you run several Claude CLI (Claude Code) sessions at once, cc-status shows 
 原生 Rust + Win32 实现,**无 Electron / 无浏览器内核**,免安装单 exe。
 Native Rust + Win32. **No Electron, no browser engine.** A single portable exe.
 
+## 下载
+[点击下载](https://github.com/x-tiantian/cc-status/releases/latest)
+
 ## 屏幕截图
 
 <img width="410" height="40" alt="image" src="https://github.com/user-attachments/assets/87d2e813-8067-4063-a38a-291e659054af" />
