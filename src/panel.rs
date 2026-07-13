@@ -165,6 +165,25 @@ pub fn reassert_topmost(hwnd: HWND) {
     }
 }
 
+/// 移动面板到新位置(同时保持置顶、不改尺寸、不抢焦点)。
+/// 层叠窗口的已呈现内容随窗口移动,无需重绘。
+pub fn move_topmost(hwnd: HWND, x: i32, y: i32) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE,
+    };
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
 /// 把画布通过 `UpdateLayeredWindow` 呈现到屏幕。
 pub fn present(hwnd: HWND, placement: Placement, canvas: &Canvas) {
     unsafe {

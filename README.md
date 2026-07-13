@@ -39,7 +39,8 @@ Native Rust + Win32. **No Electron, no browser engine.** A single portable exe.
 | 状态 | 含义 | 灯 | 动画 | 需要你介入 |
 |------|------|----|------|:---:|
 | `idle` | 空闲 / 完成待命 | 🟢 绿 | 常亮 | |
-| `working` | 思考 / 执行中 | 🔵 蓝 | 呼吸 | |
+| `thinking` | 思考 / 推理中 | 🟣 紫 | 呼吸 | |
+| `working` | 执行工具中 | 🔵 蓝 | 呼吸 | |
 | `waiting_input` | 等待输入 / 对话 | 🟡 黄 | 闪烁 | ✅ |
 | `waiting_permission` | 等待授权 | 🟠 橙 | 闪烁 | ✅ |
 | `error` | 出错 | 🔴 红 | 常亮 | ✅ |
@@ -61,14 +62,17 @@ Claude Code 支持 `http` 类型的 hook,会在会话事件发生时把事件 JS
 | Claude Code 事件 | → 状态 |
 |---|---|
 | `SessionStart` | 🟢 idle |
-| `UserPromptSubmit` / `PreToolUse` | 🔵 working |
+| `UserPromptSubmit` / `PostToolUse` | 🟣 thinking(推理中) |
+| `PreToolUse` | 🔵 working(执行工具) |
 | `Notification`(permission_prompt) | 🟠 waiting_permission |
 | `Notification`(idle_prompt) | 🟡 waiting_input |
 | `Stop` | 🟢 idle |
 | `StopFailure` | 🔴 error |
 | `SessionEnd` | ⚪ offline → 移除 |
 
-项目名取自事件里的工作目录(`cwd`);**同一项目的多个会话合并为一盏灯**。超过约 60 秒无推送转为灰色,再持续更久则移除该灯。
+项目名取自事件里的工作目录(`cwd`);**同一项目的多个会话合并为一盏灯**。活跃状态(思考/工作/等待)会持续显示;只有 `idle`(Claude 已停下)长时间无推送才会转灰并最终移除,因此**长任务/长思考期间不会误变灰**。
+
+> 说明:Claude Code 没有专门的"思考"hook 事件,`thinking` 是从 `UserPromptSubmit`/`PostToolUse`(收到输入或工具结果后、执行工具前的推理阶段)近似推断的。
 
 ### ⚙️ 设置
 
@@ -150,7 +154,8 @@ cargo build --release
 | State | Meaning | Light | Animation | Needs you |
 |-------|---------|-------|-----------|:---:|
 | `idle` | Idle / done | 🟢 green | steady | |
-| `working` | Thinking / running | 🔵 blue | breathe | |
+| `thinking` | Reasoning | 🟣 purple | breathe | |
+| `working` | Running a tool | 🔵 blue | breathe | |
 | `waiting_input` | Awaiting your input | 🟡 yellow | blink | ✅ |
 | `waiting_permission` | Awaiting approval | 🟠 orange | blink | ✅ |
 | `error` | Error | 🔴 red | steady | ✅ |
@@ -172,14 +177,17 @@ Claude Code supports `http` hooks that **POST the event JSON directly** to a URL
 | Claude Code event | → state |
 |---|---|
 | `SessionStart` | 🟢 idle |
-| `UserPromptSubmit` / `PreToolUse` | 🔵 working |
+| `UserPromptSubmit` / `PostToolUse` | 🟣 thinking |
+| `PreToolUse` | 🔵 working |
 | `Notification` (permission_prompt) | 🟠 waiting_permission |
 | `Notification` (idle_prompt) | 🟡 waiting_input |
 | `Stop` | 🟢 idle |
 | `StopFailure` | 🔴 error |
 | `SessionEnd` | ⚪ offline → removed |
 
-The project name comes from the event's working directory (`cwd`); **multiple sessions of the same project share one light**. No push for ~60s turns the light grey; longer removes it.
+The project name comes from the event's working directory (`cwd`); **multiple sessions of the same project share one light**. Active states (thinking / working / waiting) stay visible; only `idle` (Claude stopped) turns grey after a long quiet period and is eventually removed — so **long tasks never falsely go grey**.
+
+> Note: Claude Code has no dedicated "thinking" hook event. `thinking` is approximated from `UserPromptSubmit` / `PostToolUse` (the reasoning phase after receiving input or a tool result, before the next tool call).
 
 ### ⚙️ Settings
 

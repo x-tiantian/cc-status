@@ -148,6 +148,7 @@ pub fn hooks_snippet(ip: &str, port: u16, token: &str) -> String {
          \x20 \"SessionStart\":     {},\r\n\
          \x20 \"UserPromptSubmit\": {},\r\n\
          \x20 \"PreToolUse\":       {},\r\n\
+         \x20 \"PostToolUse\":      {},\r\n\
          \x20 \"Notification\":     {},\r\n\
          \x20 \"Stop\":             {},\r\n\
          \x20 \"StopFailure\":      {},\r\n\
@@ -155,6 +156,7 @@ pub fn hooks_snippet(ip: &str, port: u16, token: &str) -> String {
          }}",
         h(None),
         h(None),
+        h(Some("")),
         h(Some("")),
         h(Some("permission_prompt|idle_prompt")),
         h(None),
