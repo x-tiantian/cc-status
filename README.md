@@ -21,7 +21,7 @@ Native Rust + Win32. **No Electron, no browser engine.** A single portable exe.
 <img width="466" height="423" alt="image" src="https://github.com/user-attachments/assets/930f3143-3b95-488c-af92-5aab1f76f41f" />
 
 ## 友情链接
-- [https://linux.do](https://linux.do)
+- Thanks to the [linux.do](https://linux.do) community for discussion, sharing, and feedback.
 
 ---
 
